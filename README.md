@@ -4,24 +4,44 @@ Agent-led meeting capture built with **LangChain + LangGraph**: ingest a transcr
 
 **No paid API key required** — defaults to a deterministic mock LLM. Optional real models: **Groq** / **OpenRouter** (free API keys), **Ollama** (local), or **OpenAI**. Extraction falls back to mock if the model call fails.
 
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/)
+- Python **3.11+** (uv will provision one if needed)
+
 ## Quick start
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+# Create and activate a virtual environment first
+uv venv
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+
+# Optional local overrides (default LLM_PROVIDER=mock — no key)
+cp .env.example .env
+
+# Install project + pytest
+uv sync --extra dev
 
 # End-to-end on the sample transcript (mock LLM — no key needed)
-python -m app.main run data/sample_transcripts/sprint_sync_001.json --force-continue
+uv run python -m app.main run data/sample_transcripts/sprint_sync_001.json --force-continue
+# → writes under artifacts/runs/<run_id>/ (meeting_record.json, markdown, mock tickets)
+
+# Unit / integration tests
+uv run pytest -q
 
 # API + Swagger
-python -m app.main serve
+uv run python -m app.main serve
 # open http://localhost:8000/docs
+# health: curl -s http://localhost:8000/health   → {"status":"ok","llm":"mock"}
 # POST /meetings  {"transcript_path": "data/sample_transcripts/sprint_sync_001.json", "force_continue": true}
 
-# Optional Streamlit UI (API must be running)
-streamlit run streamlit_app.py
+# Optional Streamlit UI (API must be running on :8000)
+uv pip install streamlit
+uv run streamlit run streamlit_app.py
+# open http://localhost:8501
 ```
+
+If port **8000** is already in use, stop the existing process or confirm it is this app via `/health`.
 
 ## LLM providers
 
@@ -34,7 +54,8 @@ streamlit run streamlit_app.py
 | `openai` | `OPENAI_API_KEY` (+ optional `OPENAI_BASE_URL`) | paid, or any compatible free host |
 
 ```bash
-pip install -e ".[llm]"
+# Keep --extra dev if you still want pytest (uv sync replaces the env extras)
+uv sync --extra dev --extra llm
 # .env → LLM_PROVIDER=groq  GROQ_API_KEY=gsk-...
 ```
 
@@ -78,7 +99,8 @@ Copy `.env.example` → `.env`. Default `LLM_PROVIDER=mock` needs no key. Never 
 ## Tests & eval
 
 ```bash
-pytest -q
+uv sync --extra dev    # required for pytest
+uv run pytest -q
 ```
 
 Manual scored checklist: [`tests/eval_checklist.md`](tests/eval_checklist.md).
@@ -86,12 +108,25 @@ Manual scored checklist: [`tests/eval_checklist.md`](tests/eval_checklist.md).
 ## Reviewer guidance
 
 1. **Zero-key path (required):** `LLM_PROVIDER=mock` (or unset key) →  
-   `python -m app.main run data/sample_transcripts/sprint_sync_001.json --force-continue`
+   `uv run python -m app.main run data/sample_transcripts/sprint_sync_001.json --force-continue`
 2. Confirm output under `artifacts/runs/` has summary, decisions, action items, blockers, escalations, `source_refs`, and `needs_review` / confidence fields.
-3. **Privacy hard check:** with `audience_role=general`, confirm `confidential-hr` / hiring language and finance `$40k` do **not** appear in the record; `redacted_segments_count` ≥ 1.
-4. **HITL:** submit via Swagger `POST /meetings` with `force_continue=false`, then `POST /meetings/{run_id}/items/{item_id}/review` for a queue id (e.g. approve/edit an action item). Item should leave `review_queue` and show `status=approved`.
+3. **Privacy hard check:** with `audience_role=general`, confirm raw hiring language and finance amounts (e.g. `$40k`) do **not** appear in excerpts; restricted lines show `[REDACTED]`; `redacted_segments_count` ≥ 1.  
+   Escalation *reasons* may still name the sensitivity tag (e.g. `confidential-hr`) as metadata — that is expected; the underlying content must not leak.
+4. **HITL** (API running):
+   ```bash
+   # Pause on review queue
+   curl -s -X POST http://localhost:8000/meetings \
+     -H 'Content-Type: application/json' \
+     -d '{"transcript_path":"data/sample_transcripts/sprint_sync_001.json","force_continue":false}'
+
+   # Approve one queue id (e.g. P001 from review_queue)
+   curl -s -X POST http://localhost:8000/meetings/{run_id}/items/P001/review \
+     -H 'Content-Type: application/json' \
+     -d '{"action":"approve"}'
+   ```
+   Item should leave `review_queue` and show `status=approved`.
 5. Read [`AGENT_WORKFLOW.md`](AGENT_WORKFLOW.md) and [`artifacts/steering_transcript.md`](artifacts/steering_transcript.md) for tooling + one reject/accept steering cycle.
-6. Optional: set Groq/OpenRouter key to compare live vs mock extraction quality.
+6. Optional: set Groq/OpenRouter key to compare live vs mock extraction quality (`uv sync --extra dev --extra llm`).
 
 ## Assumptions
 
