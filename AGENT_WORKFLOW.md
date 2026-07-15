@@ -6,7 +6,7 @@ How this project was steered with AI tooling, what worked, and what was fixed ma
 
 - **Cursor agent (Composer)** — scaffolding the LangGraph app from the design doc, implementing nodes/schemas/tests, and drafting sample I/O.
 - **No paid LLM API** for the demo path — extraction uses a deterministic rule-based `MockLLM` so CI and graders need no keys.
-- Optional **LangChain OpenAI** path behind `LLM_PROVIDER` / `OPENAI_API_KEY` for summary polish only.
+- Optional **Groq / OpenRouter / Ollama / OpenAI** via `LLM_PROVIDER` — `HybridExtractor` runs chat-model JSON extraction and falls back to `MockLLM` on failure. Free cloud APIs use `groq` or `openrouter` (or any OpenAI-compatible host via `openai` + `OPENAI_BASE_URL`).
 
 ## Where the agent helped
 

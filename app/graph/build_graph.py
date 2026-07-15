@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.graph import END, START, StateGraph
 
 from app.graph.nodes.aggregate_output import aggregate_output_node
@@ -19,7 +20,22 @@ from app.graph.nodes.ingest import ingest_node
 from app.graph.nodes.permission_filter import permission_filter_node
 from app.graph.nodes.retrieve_context import retrieve_context_node
 from app.graph.state import MeetingGraphState
+from app.schemas import meeting_record as meeting_schemas
 
+# Allowlist custom Pydantic/enum types stored in LangGraph checkpoints.
+# Without this, resume/deserialize emits "unregistered type" warnings.
+_MSGPACK_SCHEMA_ALLOWLIST: tuple[tuple[str, str], ...] = tuple(
+    ("app.schemas.meeting_record", name)
+    for name, obj in vars(meeting_schemas).items()
+    if isinstance(obj, type)
+    and obj.__module__ == "app.schemas.meeting_record"
+    and not name.startswith("_")
+)
+
+
+def _default_checkpointer() -> MemorySaver:
+    serde = JsonPlusSerializer(allowed_msgpack_modules=_MSGPACK_SCHEMA_ALLOWLIST)
+    return MemorySaver(serde=serde)
 
 
 def _route_after_critique(state: MeetingGraphState) -> Literal["human_review_gate", "aggregate"]:
@@ -82,7 +98,7 @@ def build_graph(checkpointer: Any | None = None):
     graph.add_edge("await_human", END)
     graph.add_edge("aggregate", END)
 
-    memory = checkpointer if checkpointer is not None else MemorySaver()
+    memory = checkpointer if checkpointer is not None else _default_checkpointer()
     return graph.compile(checkpointer=memory)
 
 

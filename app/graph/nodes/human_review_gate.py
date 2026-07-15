@@ -15,8 +15,9 @@ def human_review_gate_node(state: MeetingGraphState) -> dict[str, Any]:
     batch mode, callers POST approvals into human_resolutions and re-invoke.
     """
     resolutions: dict[str, Any] = dict(state.get("human_resolutions") or {})
-    # transcript_path is ingest-only metadata — ignore for review application
+    # ingest / control keys — ignore for per-item application
     resolutions.pop("transcript_path", None)
+    force_continue = bool(resolutions.pop("_force_continue", False))
 
     queue = list(state.get("review_queue") or [])
     decisions = list(state.get("decisions") or [])
@@ -29,7 +30,7 @@ def human_review_gate_node(state: MeetingGraphState) -> dict[str, Any]:
 
     def _apply(items: list, item_id: str, action: str, edited: dict | None) -> bool:
         for item in items:
-            if item.id != item_id:
+            if getattr(item, "id", None) != item_id:
                 continue
             if action == "approve":
                 item.status = ItemStatus.APPROVED
@@ -45,6 +46,13 @@ def human_review_gate_node(state: MeetingGraphState) -> dict[str, Any]:
                     for k, v in edited.items():
                         if hasattr(item, k) and k != "id":
                             setattr(item, k, v)
+                    # Explicit owner/date from a human edit are no longer inferences
+                    if "owner" in edited and edited.get("owner"):
+                        if hasattr(item, "owner_inferred"):
+                            item.owner_inferred = False
+                    if "due_date" in edited and edited.get("due_date"):
+                        if hasattr(item, "due_date_inferred"):
+                            item.due_date_inferred = False
             elif action == "reassign":
                 item.status = ItemStatus.APPROVED
                 if edited and "owner" in edited:
@@ -55,11 +63,13 @@ def human_review_gate_node(state: MeetingGraphState) -> dict[str, Any]:
 
     for q in queue:
         res = resolutions.get(q.id)
-        if not res:
+        if not res or not isinstance(res, dict):
             remaining.append(q)
             continue
         action = res.get("action", "approve")
-        edited = res.get("edited_payload")
+        edited = res.get("edited_payload") or None
+        if edited == {}:
+            edited = None
         q.human_action = action
         q.edited_payload = edited
         found = (
@@ -70,11 +80,11 @@ def human_review_gate_node(state: MeetingGraphState) -> dict[str, Any]:
         )
         if found or q.item_type == "escalation":
             applied += 1
-            # escalations stay in record but leave the active review queue once acknowledged
+            # acknowledged escalations leave the active review queue
         else:
             remaining.append(q)
 
-    still_paused = len(remaining) > 0 and not resolutions.get("_force_continue")
+    still_paused = len(remaining) > 0 and not force_continue
     return {
         "decisions": decisions,
         "action_items": actions,
@@ -82,12 +92,19 @@ def human_review_gate_node(state: MeetingGraphState) -> dict[str, Any]:
         "blockers": blockers,
         "review_queue": remaining,
         "paused_for_review": still_paused,
+        "human_resolutions": {
+            **{k: v for k, v in (state.get("human_resolutions") or {}).items()},
+            **({"_force_continue": True} if force_continue else {}),
+        },
         "node_trace": [
             {
                 "node": "human_review_gate",
                 "applied": applied,
                 "remaining": len(remaining),
                 "paused_for_review": still_paused,
+                "applied_ids": [
+                    q.id for q in queue if q.id not in {r.id for r in remaining}
+                ],
             }
         ],
     }

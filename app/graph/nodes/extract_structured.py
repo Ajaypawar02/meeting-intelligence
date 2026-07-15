@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from app.config import get_settings
 from app.graph.state import MeetingGraphState
-from app.llm.llm_provider import get_extractor, get_llm
+from app.llm.llm_provider import get_extractor
 from app.schemas.meeting_record import (
     ActionItem,
     BlockerItem,
@@ -43,23 +42,28 @@ def _line_dicts(state: MeetingGraphState) -> list[dict[str, Any]]:
 def segment_classify_node(state: MeetingGraphState) -> dict[str, Any]:
     extractor = get_extractor()
     result = extractor.classify_and_extract(_line_dicts(state))
-    segments = [
-        TranscriptSegment(
-            segment_id=s["segment_id"],
-            line_ids=s["line_ids"],
-            text=s["text"],
-            classification=SegmentClass(s["classification"]),
-            sensitivity_tags=s.get("sensitivity_tags") or [],
+    segments = []
+    for s in result["segments"]:
+        raw_cls = str(s.get("classification") or "discussion").lower()
+        try:
+            classification = SegmentClass(raw_cls)
+        except ValueError:
+            classification = SegmentClass.DISCUSSION
+        segments.append(
+            TranscriptSegment(
+                segment_id=s["segment_id"],
+                line_ids=s["line_ids"],
+                text=s["text"],
+                classification=classification,
+                sensitivity_tags=s.get("sensitivity_tags") or [],
+            )
         )
-        for s in result["segments"]
-    ]
-    # Stash raw extraction on state via node_trace companion keys in next node;
-    # return segments here and re-run extract for clarity / idempotency.
     return {
         "segments": segments,
         "node_trace": [
             {
                 "node": "segment_classify",
+                "backend": result.get("_extractor_backend", "unknown"),
                 "segment_count": len(segments),
                 "classes": {
                     c.value: sum(1 for s in segments if s.classification == c)
@@ -68,7 +72,6 @@ def segment_classify_node(state: MeetingGraphState) -> dict[str, Any]:
                 },
             }
         ],
-        # Temporary cache for extract node (mock path) — stored in human_resolutions-like side channel
         "_extraction_cache": result,  # type: ignore[typeddict-item]
     }
 
@@ -129,23 +132,8 @@ def extract_structured_node(state: MeetingGraphState) -> dict[str, Any]:
         EscalationItem.model_validate(e) for e in result.get("escalations", [])
     ]
     existing = list(state.get("escalations") or [])
-
-    # Optional real-LLM summary polish when configured.
     summary = result.get("summary", "")
-    settings = get_settings()
-    if not settings.use_mock_llm:
-        llm = get_llm()
-        prompt = (
-            "Summarize this meeting in 3-5 sentences. Focus on decisions and actions.\n"
-            + "\n".join(
-                f"[{x['timestamp']}] {x['speaker']}: {x['text']}" for x in _line_dicts(state)
-            )
-        )
-        try:
-            resp = llm.invoke(prompt)
-            summary = getattr(resp, "content", None) or str(resp)
-        except Exception:
-            pass
+    backend = result.get("_extractor_backend", "unknown")
 
     return {
         "decisions": decisions,
@@ -157,6 +145,7 @@ def extract_structured_node(state: MeetingGraphState) -> dict[str, Any]:
         "node_trace": [
             {
                 "node": "extract_structured",
+                "backend": backend,
                 "decisions": len(decisions),
                 "action_items": len(actions),
                 "blockers": len(blockers),

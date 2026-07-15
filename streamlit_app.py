@@ -138,16 +138,18 @@ if st.session_state.run_id and st.session_state.meeting_data:
 
                     with btn_col1:
                         if st.button("🟢 Approve & Save", key=f"app_{item_id}", use_container_width=True):
-                            # Call API
                             review_body = {
                                 "action": "edit" if item_type == "action_item" else "approve",
                                 "edited_payload": edited_payload if item_type == "action_item" else None,
-                                "force_continue": force_continue_value
+                                "force_continue": force_continue_value,
                             }
-                            res = requests.post(f"{FASTAPI_URL}/meetings/{run_id}/items/{item_id}/review", json=review_body)
+                            res = requests.post(
+                                f"{FASTAPI_URL}/meetings/{run_id}/items/{item_id}/review",
+                                json=review_body,
+                            )
                             if res.status_code == 200:
+                                st.session_state.meeting_data = res.json()
                                 st.toast(f"Approved {item_id}!")
-                                fetch_latest_state()
                                 st.rerun()
                             else:
                                 st.error(f"Error: {res.text}")
@@ -157,22 +159,30 @@ if st.session_state.run_id and st.session_state.meeting_data:
                             review_body = {
                                 "action": "reject",
                                 "edited_payload": None,
-                                "force_continue": force_continue_value
+                                "force_continue": force_continue_value,
                             }
-                            res = requests.post(f"{FASTAPI_URL}/meetings/{run_id}/items/{item_id}/review", json=review_body)
+                            res = requests.post(
+                                f"{FASTAPI_URL}/meetings/{run_id}/items/{item_id}/review",
+                                json=review_body,
+                            )
                             if res.status_code == 200:
+                                st.session_state.meeting_data = res.json()
                                 st.toast(f"Rejected {item_id}!")
-                                fetch_latest_state()
                                 st.rerun()
                             else:
                                 st.error(f"Error: {res.text}")
         else:
             st.success("🎉 All items have been reviewed! Human-in-the-loop stage completed.")
-            if status != "completed":
+            if status != "completed" and data.get("paused_for_review"):
                 if st.button("⚡ Force Finish Pipeline", type="primary"):
-                    # Quick nudge in case they finished but didn't trigger force_continue
-                    requests.post(f"{FASTAPI_URL}/meetings/{run_id}/items/dummy/review", json={"action": "approve", "force_continue": True})
-                    fetch_latest_state()
+                    res = requests.post(
+                        f"{FASTAPI_URL}/meetings/{run_id}/items/_force/review",
+                        json={"action": "approve", "force_continue": True},
+                    )
+                    if res.status_code == 200:
+                        st.session_state.meeting_data = res.json()
+                    else:
+                        fetch_latest_state()
                     st.rerun()
 
     # ------------------ RIGHT COLUMN: AUTO-APPROVED & RESULTS ------------------
@@ -184,27 +194,41 @@ if st.session_state.run_id and st.session_state.meeting_data:
             st.markdown(f"**Date:** {record.get('date', 'Unknown')}")
             st.markdown(f"**Meeting ID:** {record.get('meeting_id', 'Unknown')}")
         
-        # Display Decisions (Auto-Approved)
         decisions = record.get("decisions", [])
         if decisions:
-            with st.expander(f"✅ Auto-Approved Decisions ({len(decisions)})"):
+            with st.expander(f"✅ Decisions ({len(decisions)})"):
                 for d in decisions:
-                    st.markdown(f"* **{d['description']}** (Decided by: *{d['decided_by']}*)")
+                    st.markdown(
+                        f"* **{d.get('description')}** "
+                        f"(by *{d.get('decided_by')}*, status=`{d.get('status')}`)"
+                    )
 
-        # Display Blockers (Auto-Approved)
+        actions = record.get("action_items", [])
+        if actions:
+            with st.expander(f"📌 Action items ({len(actions)})"):
+                for a in actions:
+                    st.markdown(
+                        f"* **{a.get('task')}** — owner=`{a.get('owner')}` "
+                        f"due=`{a.get('due_date')}` status=`{a.get('status')}`"
+                    )
+
         blockers = record.get("blockers", [])
         if blockers:
-            with st.expander(f"⚠️ Auto-Approved Blockers ({len(blockers)})"):
+            with st.expander(f"⚠️ Blockers ({len(blockers)})"):
                 for b in blockers:
-                    st.markdown(f"* **{b['description']}** (Blocking: *{b['blocking']}*)")
+                    st.markdown(
+                        f"* **{b.get('description')}** (Blocking: *{b.get('blocking')}*)"
+                    )
 
-        # Display Completed Deliverables once the run finishes!
-        if status == "completed":
+        if status == "completed" or (
+            not data.get("paused_for_review") and record.get("summary")
+            and record.get("status") != "paused_for_review"
+        ):
             st.success("✨ Final deliverables generated! Check your `artifacts/runs` folder.")
-            
-            # Button mockups representing the output files
-            st.markdown("### 📥 Generated Files:")
-            st.button("📄 Download meeting_recap.md", use_container_width=True)
-            st.button("🎟️ Download jira_tickets.json", use_container_width=True)
+            paths = data.get("handback_paths") or []
+            if paths:
+                st.markdown("### 📥 Generated files")
+                for p in paths:
+                    st.code(p)
 else:
     st.info("👈 Please start a run or paste a meeting path in the sidebar to load the dashboard.")

@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from app.config import get_settings
+from app.llm.llm_provider import active_llm_label
 from app.pipeline import run_meeting_pipeline
 
 
@@ -54,10 +55,9 @@ class ApproveRequest(BaseModel):
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    settings = get_settings()
     return {
         "status": "ok",
-        "llm": "mock" if settings.use_mock_llm else "openai",
+        "llm": active_llm_label(),
     }
 
 
@@ -126,10 +126,6 @@ def approve_item(run_id: str, item_id: str, body: ApproveRequest) -> dict[str, A
         "action": body.action,
         "edited_payload": body.edited_payload,
     }
-
-    print("=*50")
-    print(approvals)
-    print("=*50")
     if body.force_continue:
         approvals["_force_continue"] = True
 
@@ -141,11 +137,13 @@ def approve_item(run_id: str, item_id: str, body: ApproveRequest) -> dict[str, A
         force_continue=body.force_continue,
         thread_id=stored.get("thread_id") or run_id,
     )
+    # Preserve cumulative approvals across reviews (do not wipe prior item ids).
     _RUNS[run_id] = {
         **result,
         "transcript_path": stored["transcript_path"],
         "audience_role": stored.get("audience_role", "general"),
         "approvals": approvals,
+        "thread_id": result.get("thread_id") or stored.get("thread_id") or run_id,
     }
     return {
         "run_id": run_id,

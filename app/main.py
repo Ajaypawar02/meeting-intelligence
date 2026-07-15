@@ -10,7 +10,7 @@ import typer
 from rich.console import Console
 from rich.json import JSON
 
-from app.config import get_settings
+from app.llm.llm_provider import active_llm_label
 from app.pipeline import run_meeting_pipeline
 
 app = typer.Typer(
@@ -42,9 +42,8 @@ def run(
     out: Optional[Path] = typer.Option(None, help="Write full result JSON to this path"),
 ) -> None:
     """Run the pipeline on a sample (or custom) transcript."""
-    settings = get_settings()
     console.print(
-        f"[bold]LLM mode:[/bold] {'mock' if settings.use_mock_llm else 'openai'} | "
+        f"[bold]LLM mode:[/bold] {active_llm_label()} | "
         f"[bold]audience:[/bold] {audience_role}"
     )
     human = {}

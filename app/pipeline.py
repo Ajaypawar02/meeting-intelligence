@@ -11,12 +11,6 @@ from app.graph.nodes.ingest import load_transcript_file
 from app.schemas.meeting_record import MeetingRecord
 
 
-def printify(name, value):
-    print(f"=================={name}================================")
-    print(value)
-    print("===================================================")
-
-
 def run_meeting_pipeline(
     transcript_path: Path | str,
     *,
@@ -47,19 +41,25 @@ def run_meeting_pipeline(
         "node_trace": [],
     }
 
-    # If thread already has state and we only have new resolutions, update & continue
     snapshot = graph.get_state(config)
-    if snapshot.values and (human_resolutions or force_continue):
-        printify("resolutions ", resolutions)
-        printify("config" ,config)
+    has_checkpoint = bool(snapshot.values)
+    resuming = has_checkpoint and bool(human_resolutions or force_continue)
+
+    if resuming:
+        # Graph previously stopped at await_human → END. Plain invoke(None) does
+        # not re-enter human_review_gate, so approvals would be ignored.
+        # Treat the update as coming from critique_confidence so the next step
+        # follows its conditional edge back into human_review_gate.
         graph.update_state(
             config,
             {
                 "human_resolutions": resolutions,
-                "paused_for_review": False if force_continue else snapshot.values.get(
-                    "paused_for_review", True
-                ),
+                # Keep paused so routing still selects human_review_gate;
+                # the gate itself clears pause after applying approvals /
+                # force_continue.
+                "paused_for_review": True,
             },
+            as_node="critique_confidence",
         )
         final_state = graph.invoke(None, config)
     else:
@@ -68,8 +68,13 @@ def run_meeting_pipeline(
     record = final_state.get("meeting_record")
     if isinstance(record, MeetingRecord):
         record_data = record.model_dump()
+        record_data["status"] = "completed"
     elif isinstance(record, dict):
-        record_data = record
+        record_data = dict(record)
+        record_data.setdefault(
+            "status",
+            "completed" if not final_state.get("paused_for_review") else "paused_for_review",
+        )
     else:
         # Paused before aggregate — build a partial view
         record_data = {
@@ -77,13 +82,34 @@ def run_meeting_pipeline(
             "title": meta.title,
             "date": meta.date,
             "summary": "Pipeline paused pending human review.",
-            "decisions": [d.model_dump() if hasattr(d, "model_dump") else d for d in final_state.get("decisions") or []],
-            "action_items": [a.model_dump() if hasattr(a, "model_dump") else a for a in final_state.get("action_items") or []],
-            "blockers": [b.model_dump() if hasattr(b, "model_dump") else b for b in final_state.get("blockers") or []],
-            "follow_ups": [f.model_dump() if hasattr(f, "model_dump") else f for f in final_state.get("follow_ups") or []],
-            "escalations": [e.model_dump() if hasattr(e, "model_dump") else e for e in final_state.get("escalations") or []],
-            "review_queue": [q.model_dump() if hasattr(q, "model_dump") else q for q in final_state.get("review_queue") or []],
-            "context_used": [c.model_dump() if hasattr(c, "model_dump") else c for c in final_state.get("context_snippets") or []],
+            "decisions": [
+                d.model_dump() if hasattr(d, "model_dump") else d
+                for d in final_state.get("decisions") or []
+            ],
+            "action_items": [
+                a.model_dump() if hasattr(a, "model_dump") else a
+                for a in final_state.get("action_items") or []
+            ],
+            "blockers": [
+                b.model_dump() if hasattr(b, "model_dump") else b
+                for b in final_state.get("blockers") or []
+            ],
+            "follow_ups": [
+                f.model_dump() if hasattr(f, "model_dump") else f
+                for f in final_state.get("follow_ups") or []
+            ],
+            "escalations": [
+                e.model_dump() if hasattr(e, "model_dump") else e
+                for e in final_state.get("escalations") or []
+            ],
+            "review_queue": [
+                q.model_dump() if hasattr(q, "model_dump") else q
+                for q in final_state.get("review_queue") or []
+            ],
+            "context_used": [
+                c.model_dump() if hasattr(c, "model_dump") else c
+                for c in final_state.get("context_snippets") or []
+            ],
             "redacted_segments_count": final_state.get("redacted_count") or 0,
             "audience_role": audience_role,
             "auto_published_count": 0,
