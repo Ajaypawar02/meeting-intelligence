@@ -1,0 +1,13 @@
+services:
+  meeting-intelligence:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      LLM_PROVIDER: mock
+      CONFIDENCE_THRESHOLD: "0.75"
+      DATA_DIR: /app/data
+      OUTPUT_DIR: /app/artifacts/runs
+    volumes:
+      - ./artifacts/runs:/app/artifacts/runs
+      - ./data:/app/data:ro

@@ -1,0 +1,99 @@
+{
+  "meeting_id": "sprint_sync_001",
+  "title": "Platform Sprint Sync — Week 28",
+  "date": "2026-07-14",
+  "project": "checkout-latency",
+  "team": "platform",
+  "attendees": [
+    {"name": "Ava Chen", "role": "eng_lead"},
+    {"name": "Marcus Lee", "role": "engineer"},
+    {"name": "Priya Nair", "role": "pm"},
+    {"name": "Jonah Wright", "role": "sre"}
+  ],
+  "transcript": [
+    {
+      "line_id": "L001",
+      "speaker": "Priya",
+      "timestamp": "10:00",
+      "text": "Quick sync on checkout latency. Goal is to decide the rollout plan for the cache layer.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L002",
+      "speaker": "Ava",
+      "timestamp": "10:02",
+      "text": "Marcus has the p95 numbers. We're still waiting on the staging redeploy from infra.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L003",
+      "speaker": "Marcus",
+      "timestamp": "10:03",
+      "text": "p95 dropped from 820ms to 410ms in canary. I think we should freeze the cache TTL at five minutes.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L004",
+      "speaker": "Priya",
+      "timestamp": "10:05",
+      "text": "Agreed. We've decided to go with a five-minute TTL for the cart cache in production.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L005",
+      "speaker": "Ava",
+      "timestamp": "10:06",
+      "text": "I'll own the prod flag flip by Friday.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L006",
+      "speaker": "Jonah",
+      "timestamp": "10:08",
+      "text": "We're blocked on the staging redeploy — waiting on the shared cluster quota ticket from infra.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L007",
+      "speaker": "Marcus",
+      "timestamp": "10:10",
+      "text": "What's the standard deploy checklist for cache changes? I want to make sure we didn't miss a rollback step.",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L008",
+      "speaker": "Priya",
+      "timestamp": "10:12",
+      "text": "Also — can someone from platform draft the customer email if latency spikes again?",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L009",
+      "speaker": "Ava",
+      "timestamp": "10:14",
+      "text": "Budget question for leadership: should we commit an extra $40k this quarter for Redis capacity?",
+      "sensitivity_tag": "finance"
+    },
+    {
+      "line_id": "L010",
+      "speaker": "Priya",
+      "timestamp": "10:16",
+      "text": "Parallel HR note — we should not circulate the backfill hiring plan for the latency squad yet.",
+      "sensitivity_tag": "confidential-hr"
+    },
+    {
+      "line_id": "L011",
+      "speaker": "Jonah",
+      "timestamp": "10:18",
+      "text": "Open question: do we slip the public launch date if staging stays blocked past Wednesday?",
+      "sensitivity_tag": "general"
+    },
+    {
+      "line_id": "L012",
+      "speaker": "Ava",
+      "timestamp": "10:20",
+      "text": "Let's lock the canary at 10% traffic until Friday, then review.",
+      "sensitivity_tag": "general"
+    }
+  ]
+}
